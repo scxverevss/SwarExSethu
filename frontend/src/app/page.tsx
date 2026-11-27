@@ -184,6 +184,7 @@ export default function Home() {
     }
   }, [sendMessage, language]);
 
+  const handleMicToggle = useCallback(async () => {
     if (isRecording) { stopRecording(); return; }
     startRecording();
   }, [isRecording, startRecording, stopRecording]);
