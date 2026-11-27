@@ -304,11 +304,11 @@ export default function Home() {
             <span className="font-bold text-xl tracking-tight">SwarExSethu</span>
           </div>
           <div className="flex items-center gap-3">
-            <StatusPill status={mode} subtitle={finalTranscript ? `· “${finalTranscript}”` : undefined} />
+            <StatusPill status={mode} subtitle={finalTranscript ? "\u00B7 ${finalTranscript} : undefined} />
             <div className="flex items-center gap-2 text-xs">
               <span className="text-slate-500">Voice Input:</span>
               <span className={`font-medium ${input_source === "wispr_flow" ? "text-swar-600" : "text-slate-500"}`} id="wispr-mode-indicator">
-                {input_source === "wispr_flow" and "Wispr Flow" or "Built-in Mic"}
+                {input_source === "wispr_flow" ? "Wispr Flow" : "Built-in Mic"}
               </span>
             </div>
             {error && <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">{error}</span>}
