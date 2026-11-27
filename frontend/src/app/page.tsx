@@ -170,10 +170,6 @@ export default function Home() {
   let rafRef = useRef<number>(0);
 
   // ---------- mic / audio capture ----------
-    rec.start();
-    return () => { try { rec.stop(); } catch { } recognitionRef.current = null; };
-  }, [isRecording, language]);
-
   // ---------- send transcript ----------
   const handleTranscribe = useCallback(async (blob: Blob) => {
     setMode("analyzing");
@@ -182,7 +178,12 @@ export default function Home() {
       const transcript = asr.transcript.trim();
       setFinalTranscript((p) => (p ? p + " " : "") + transcript);
       setElderTranscript(transcript);
-  const handleMicToggle = useCallback(async () => {
+      await sendMessage(transcript, undefined, language);
+    } catch {
+      setMode("idle");
+    }
+  }, [sendMessage, language]);
+
     if (isRecording) { stopRecording(); return; }
     startRecording();
   }, [isRecording, startRecording, stopRecording]);
@@ -216,6 +217,10 @@ export default function Home() {
       setElderTranscript((p) => (p || "") + (interim ? " " + interim : ""));
     };
     rec.onend = () => { if (isRecording) rec.start(); };
+    rec.start();
+    return () => { try { rec.stop(); } catch { } recognitionRef.current = null; };
+  }, [isRecording, language]);
+
   const startRecording = useCallback(async () => {
     setError("");
     setElderTranscript("");
