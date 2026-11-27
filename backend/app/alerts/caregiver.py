@@ -2,9 +2,16 @@
 
 import json
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+class AlertSeverity(StrEnum):
+    ROUTINE_DIGEST = "routine_digest"
+    ELEVATED_WATCH = "elevated_watch"
+    URGENT_RED_FLAG = "urgent_red_flag"
 
 
 @dataclass
