@@ -1,16 +1,24 @@
-/**
+﻿/**
  * SwarExSethu frontend API client.
  * Reads NEXT_PUBLIC_API_URL (default http://localhost:8000).
  */
 
-const BASE = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL)
-  ? process.env.NEXT_PUBLIC_API_URL
-  : "http://localhost:8000";
+const apiEnvUrl = (
+  globalThis as { process?: { env?: Record<string, string | undefined> } }
+).process?.env?.NEXT_PUBLIC_API_URL;
+
+const BASE = apiEnvUrl ? apiEnvUrl : "http://localhost:8000";
 
 async function request(path: string, opts: RequestInit = {}): Promise<Response> {
+  const isFormData = typeof FormData !== "undefined" && opts.body instanceof FormData;
+  const headers: Record<string, string> = {
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    ...(opts.headers as Record<string, string> | undefined),
+  };
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...opts.headers },
     ...opts,
+    headers,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -22,7 +30,8 @@ async function request(path: string, opts: RequestInit = {}): Promise<Response> 
 export const api = {
   // ---------- Profiles ----------
   listProfiles: () => request("/api/profiles").then((r) => r.json()),
-  createProfile: (body: any) => request("/api/profiles", { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()),
+  createProfile: (body: any) =>
+    request("/api/profiles", { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()),
   getProfile: (id: number) => request(`/api/profiles/${id}`).then((r) => r.json()),
   updateProfile: (id: number, body: any) =>
     request(`/api/profiles/${id}`, { method: "PUT", body: JSON.stringify(body) }).then((r) => r.json()),
@@ -46,7 +55,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ profile_id: profileId }),
     }).then((r) => r.json()),
-  sendMessage: (sessionId: number, body: { text: string; asr_confidence?: number; snr_db?: number; language?: string }) =>
+  sendMessage: (
+    sessionId: number,
+    body: {
+      text: string;
+      asr_confidence?: number;
+      snr_db?: number;
+      language?: string;
+      input_source?: string;
+    }
+  ) =>
     request(`/api/sessions/${sessionId}/message`, {
       method: "POST",
       body: JSON.stringify(body),
@@ -60,11 +78,12 @@ export const api = {
   transcribeAudio: (blob: Blob) => {
     const form = new FormData();
     form.append("file", blob, "audio.webm");
-    return request("/api/audio/transcribe", { method: "POST", body: form, headers: {} as any }).then((r) => r.json());
+    return request("/api/audio/transcribe", { method: "POST", body: form }).then((r) => r.json());
   },
   synthesizeSpeech: (text: string, language: string) =>
-    request(`/api/audio/synthesize?text=${encodeURIComponent(text)}&language=${encodeURIComponent(language)}`)
-      .then((r) => r.blob()),
+    request(
+      `/api/audio/synthesize?text=${encodeURIComponent(text)}&language=${encodeURIComponent(language)}`
+    ).then((r) => r.blob()),
 
   // ---------- Wind-down ----------
   listRagas: () => request("/api/audio/wind-down/ragas").then((r) => r.json()),
@@ -85,12 +104,22 @@ export type WSMessage = {
   asr_confidence?: number;
   snr_db?: number;
   language?: string;
+  input_source?: string;
 };
 
-export function connectWebSocket(sessionId: number, onMessage: (data: any) => void, onClose?: () => void) {
-  const ws = new WebSocket(`${BASE.replace("http", "ws")}/api/ws/stream/${sessionId}`);
+export function connectWebSocket(
+  sessionId: number,
+  onMessage: (data: any) => void,
+  onClose?: () => void
+) {
+  const wsBase = BASE.replace(/^https:\/\//i, "wss://").replace(/^http:\/\//i, "ws://");
+  const ws = new WebSocket(`${wsBase}/api/ws/stream/${sessionId}`);
   ws.onmessage = (ev) => {
-    try { onMessage(JSON.parse(ev.data)); } catch { onMessage(ev.data); }
+    try {
+      onMessage(JSON.parse(ev.data));
+    } catch {
+      onMessage(ev.data);
+    }
   };
   ws.onclose = () => onClose?.();
   return ws;
