@@ -170,11 +170,6 @@ export default function Home() {
   let rafRef = useRef<number>(0);
 
   // ---------- mic / audio capture ----------
-  const handleMicToggle = useCallback(async () => {
-    if (isRecording) { stopRecording(); return; }
-    startRecording();
-  }, [isRecording, startRecording, stopRecording]);
-
   const startRecording = useCallback(async () => {
     setError("");
     setElderTranscript("");
@@ -224,6 +219,11 @@ export default function Home() {
       setIsRecording(false);
     }
   }, [handleTranscribe]);
+  const handleMicToggle = useCallback(async () => {
+    if (isRecording) { stopRecording(); return; }
+    startRecording();
+  }, [isRecording, startRecording, stopRecording]);
+
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
