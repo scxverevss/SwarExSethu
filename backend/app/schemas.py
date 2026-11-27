@@ -181,7 +181,7 @@ class SynthesizeIn(BaseModel):
 # Alerts
 # ---------------------------------------------------------------------------
 class CaregiverAlertOut(BaseModel):
-    model_config = ConfigDict.from_attributes=True
+    model_config = ConfigDict(from_attributes=True)
 
     id: int
     profile_id: int
