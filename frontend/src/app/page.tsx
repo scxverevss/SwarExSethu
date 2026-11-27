@@ -271,11 +271,6 @@ export default function Home() {
       setIsRecording(false);
     }
   }, [handleTranscribe]);
-      if (!transcript) { setMode("idle"); return; }
-      await sendMessage(transcript, asr.confidence, asr.language);
-    } catch { setMode("idle"); }
-    setMode("idle");
-  }, [sendMessage]);
 
   const sendMessage = useCallback(async (text: string, confidence?: number, lang?: string) => {
     if (!session?.id) return;
