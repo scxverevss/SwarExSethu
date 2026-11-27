@@ -374,11 +374,11 @@ export default function Home() {
                     </div>
                     <div className="mt-2 flex items-center gap-2">
                       <button
-                        onClick={() => setInput_source("wispr_flow")}
+                        onClick={() => setInputSource("wispr_flow")}
                         className={`
                           px-3 py-1 rounded-lg text-sm font-medium transition-colors
                           ${input_source === "wispr_flow" ? "bg-swar-100 border-swar-600 text-swar-800" : "border-slate-300 text-slate-600 hover:bg-slate-50"}
-                        }
+                        `}
                         aria-label="Switch to Wispr Flow dictation"
                       >
                         Wispr Flow
