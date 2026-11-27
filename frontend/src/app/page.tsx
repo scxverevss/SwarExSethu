@@ -170,6 +170,52 @@ export default function Home() {
   let rafRef = useRef<number>(0);
 
   // ---------- mic / audio capture ----------
+    rec.start();
+    return () => { try { rec.stop(); } catch { } recognitionRef.current = null; };
+  }, [isRecording, language]);
+
+  // ---------- send transcript ----------
+  const handleTranscribe = useCallback(async (blob: Blob) => {
+    setMode("analyzing");
+    try {
+      const asr = await api.transcribeAudio(blob);
+      const transcript = asr.transcript.trim();
+      setFinalTranscript((p) => (p ? p + " " : "") + transcript);
+      setElderTranscript(transcript);
+  const handleMicToggle = useCallback(async () => {
+    if (isRecording) { stopRecording(); return; }
+    startRecording();
+  }, [isRecording, startRecording, stopRecording]);
+
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  }, []);
+
+  // ---------- live speech recognition ----------
+  useEffect(() => {
+    if (!isRecording) return;
+    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    const rec = new SpeechRecognition();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = language === "en" ? "en-IN" : `${language}-IN`;
+    recognitionRef.current = rec;
+    rec.onresult = (e: any) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) {
+          setElderTranscript((p) => (p ? p + " " : "") + t.trim());
+        } else interim += t;
+      }
+      setElderTranscript((p) => (p || "") + (interim ? " " + interim : ""));
+    };
+    rec.onend = () => { if (isRecording) rec.start(); };
   const startRecording = useCallback(async () => {
     setError("");
     setElderTranscript("");
@@ -219,52 +265,6 @@ export default function Home() {
       setIsRecording(false);
     }
   }, [handleTranscribe]);
-  const handleMicToggle = useCallback(async () => {
-    if (isRecording) { stopRecording(); return; }
-    startRecording();
-  }, [isRecording, startRecording, stopRecording]);
-
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
-  }, []);
-
-  // ---------- live speech recognition ----------
-  useEffect(() => {
-    if (!isRecording) return;
-    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-    const rec = new SpeechRecognition();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = language === "en" ? "en-IN" : `${language}-IN`;
-    recognitionRef.current = rec;
-    rec.onresult = (e: any) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) {
-          setElderTranscript((p) => (p ? p + " " : "") + t.trim());
-        } else interim += t;
-      }
-      setElderTranscript((p) => (p || "") + (interim ? " " + interim : ""));
-    };
-    rec.onend = () => { if (isRecording) rec.start(); };
-    rec.start();
-    return () => { try { rec.stop(); } catch { } recognitionRef.current = null; };
-  }, [isRecording, language]);
-
-  // ---------- send transcript ----------
-  const handleTranscribe = useCallback(async (blob: Blob) => {
-    setMode("analyzing");
-    try {
-      const asr = await api.transcribeAudio(blob);
-      const transcript = asr.transcript.trim();
-      setFinalTranscript((p) => (p ? p + " " : "") + transcript);
-      setElderTranscript(transcript);
       if (!transcript) { setMode("idle"); return; }
       await sendMessage(transcript, asr.confidence, asr.language);
     } catch { setMode("idle"); }
