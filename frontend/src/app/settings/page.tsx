@@ -1,4 +1,4 @@
-"use strict";
+"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { User, Pill, Phone, Mail, Plus, Save, Trash2 } from "lucide-react";

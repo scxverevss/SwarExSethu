@@ -1,4 +1,4 @@
-"use strict";
+"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Phone, Mic, MicOff, RefreshCw, ChevronRight } from "lucide-react";
