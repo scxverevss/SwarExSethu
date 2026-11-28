@@ -6,14 +6,14 @@ import {
   Mic,
   Volume2,
   ShieldAlert,
-  Sparkles,
-  UserPlus,
   Send,
   Activity,
   PhoneCall,
   HeartHandshake,
   Languages,
   ArrowUpRight,
+  Wifi,
+  RefreshCw,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { VoiceOrb } from "@/components/VoiceOrb";
@@ -34,13 +34,17 @@ interface MedPill {
   checked: boolean;
 }
 
-const LANG_LABEL: Record<string, string> = {
-  en: "English",
-  hi: "Hindi / Hinglish",
-  te: "Telugu / Tenglish",
-  kn: "Kannada / Kanglish",
-  ta: "Tamil / Tanglish",
-};
+const LANG_OPTIONS = [
+  { code: "hi", label: "Hindi / Hinglish" },
+  { code: "en", label: "English" },
+  { code: "te", label: "Telugu / Tenglish" },
+  { code: "kn", label: "Kannada / Kanglish" },
+  { code: "ta", label: "Tamil / Tanglish" },
+];
+
+const LANG_LABEL: Record<string, string> = Object.fromEntries(
+  LANG_OPTIONS.map((l) => [l.code, l.label])
+);
 
 const DEFAULT_RAGAS = [
   { key: "yaman", name: "Raga Yaman", bpm: 58 },
@@ -51,6 +55,7 @@ const DEFAULT_RAGAS = [
 export default function Home() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(true);
+  const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [session, setSession] = useState<any>(null);
@@ -72,7 +77,6 @@ export default function Home() {
   const [language, setLanguage] = useState("hi");
   const [summary, setSummary] = useState("");
   const [isRecording, setIsRecording] = useState(false);
-  const [creatingProfile, setCreatingProfile] = useState(false);
   const [error, setError] = useState("");
   const [ragas, setRagas] = useState<any[]>(DEFAULT_RAGAS);
   const [windDownActive, setWindDownActive] = useState(false);
@@ -84,18 +88,22 @@ export default function Home() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  // ---------- profile & raga boot ----------
   const loadProfiles = useCallback(async () => {
     setLoadingProfiles(true);
+    setBackendStatus("checking");
     try {
       const ps = await api.listProfiles();
-      setProfiles(ps);
-      if (ps.length && !selectedProfileId) {
-        setSelectedProfileId(ps[0].id);
-      }
+      const list = Array.isArray(ps) ? ps : [];
+      setProfiles(list);
+      setBackendStatus("online");
       setError("");
-    } catch {
+      if (list.length && !selectedProfileId) {
+        setSelectedProfileId(list[0].id);
+      }
+    } catch (e: any) {
       setProfiles([]);
+      setBackendStatus("offline");
+      setError(e?.message || "Unable to reach backend API.");
     } finally {
       setLoadingProfiles(false);
     }
@@ -111,32 +119,11 @@ export default function Home() {
       .catch(() => {});
   }, [loadProfiles]);
 
-  const createDefaultProfile = useCallback(async () => {
-    setCreatingProfile(true);
-    setError("");
-    try {
-      const p = await api.createProfile({
-        elder_name: "Amma (Lakshmi)",
-        age: 72,
-        preferred_language: "hi",
-        baseline_conditions: "Hypertension, Type 2 Diabetes",
-        emergency_contact: "112",
-        caregiver_webhook: "",
-      });
-      setProfiles((prev) => [p, ...prev]);
-      setSelectedProfileId(p.id);
-    } catch (e: any) {
-      setError(e.message || "Backend is waking up on Render—please try again in a few seconds.");
-    } finally {
-      setCreatingProfile(false);
-    }
-  }, []);
-
   const selectProfile = useCallback(
     (id: number) => {
-      setSelectedProfileId(id);
-      const p = profiles.find((x) => x.id === id);
-      if (p) setProfile(p);
+      setSelectedProfileId(id || null);
+      const p = profiles.find((x) => x.id === id) || null;
+      setProfile(p);
       setLanguage(p?.preferred_language || "en");
       setSession(null);
       setTurns([]);
@@ -151,13 +138,12 @@ export default function Home() {
 
   useEffect(() => {
     if (selectedProfileId) {
-      const p = profiles.find((x) => x.id === selectedProfileId);
-      setProfile(p || null);
+      const p = profiles.find((x) => x.id === selectedProfileId) || null;
+      setProfile(p);
       setLanguage(p?.preferred_language || "en");
     }
   }, [selectedProfileId, profiles]);
 
-  // ---------- TTS ----------
   const browserSpeak = useCallback((text: string, lang: string) => {
     if (!("speechSynthesis" in window)) {
       setMode("idle");
@@ -197,7 +183,6 @@ export default function Home() {
     [browserSpeak, windDownActive]
   );
 
-  // ---------- session ----------
   const startSession = useCallback(async () => {
     if (!selectedProfileId) return;
     setMode("analyzing");
@@ -207,7 +192,7 @@ export default function Home() {
       setSession(started);
       setTurns([]);
       setAssistantText(started.reply_text);
-      setLanguage(started.language);
+      setLanguage(started.language || language);
       setMeds(
         (started.medications_to_confirm || []).map((m: any) => ({
           id: m.id,
@@ -218,21 +203,19 @@ export default function Home() {
           checked: false,
         }))
       );
-      await speakText(started.reply_text, started.language);
+      await speakText(started.reply_text, started.language || language);
       setMode("idle");
     } catch (e: any) {
-      setError(e.message || "Failed to start session");
+      setError(e?.message || "Failed to start session");
       setMode("idle");
     }
-  }, [selectedProfileId, speakText]);
+  }, [selectedProfileId, language, speakText]);
 
-  // ---------- medication ----------
   const toggleMed = useCallback((id: number, taken: boolean) => {
     setMeds((prev) => prev.map((m) => (m.id === id ? { ...m, checked: taken } : m)));
     api.checkInMedication(id, taken).catch(() => {});
   }, []);
 
-  // ---------- escalation ----------
   const acknowledgeEscalation = useCallback(() => {
     setEscalation(null);
     if (session?.id) {
@@ -240,7 +223,6 @@ export default function Home() {
     }
   }, [session?.id]);
 
-  // ---------- send message & transcript ----------
   const sendMessage = useCallback(
     async (text: string, confidence?: number, lang?: string) => {
       const clean = text.trim();
@@ -278,7 +260,7 @@ export default function Home() {
         } catch {}
         await speakText(out.reply_text, out.language || language);
       } catch (e: any) {
-        setError(e.message || "Failed to process message");
+        setError(e?.message || "Failed to process message");
         setMode("idle");
       }
     },
@@ -365,7 +347,7 @@ export default function Home() {
       };
       rec.start(200);
     } catch (e: any) {
-      setError("Microphone access failed: " + (e.message || String(e)));
+      setError("Microphone access failed: " + (e?.message || String(e)));
       setMode("idle");
       setIsRecording(false);
     }
@@ -379,7 +361,6 @@ export default function Home() {
     startRecording();
   }, [isRecording, startRecording, stopRecording]);
 
-  // ---------- live speech recognition ----------
   useEffect(() => {
     if (!isRecording) return;
     const SpeechRecognition =
@@ -438,7 +419,7 @@ export default function Home() {
       />
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 space-y-6">
-        {/* Hero / Profile Selector Bar */}
+        {/* Hero & Profile Selector Bar */}
         <section className="glass-card p-5 sm:p-6">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
@@ -454,7 +435,7 @@ export default function Home() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5 bg-slate-50/90 p-3 rounded-2xl border border-slate-200/80">
-              <div className="min-w-[200px]">
+              <div className="min-w-[210px]">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
                   Active Elder Profile
                 </span>
@@ -464,7 +445,7 @@ export default function Home() {
                   className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium text-slate-800"
                 >
                   <option value="">
-                    {loadingProfiles ? "Connecting to backend…" : "Select elder profile"}
+                    {loadingProfiles ? "Connecting to API…" : "Select elder profile"}
                   </option>
                   {profiles.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -475,12 +456,13 @@ export default function Home() {
               </div>
 
               <button
-                onClick={createDefaultProfile}
-                disabled={creatingProfile}
-                className="secondary text-xs sm:text-sm h-[38px] mt-auto"
+                type="button"
+                onClick={loadProfiles}
+                disabled={loadingProfiles}
+                className="secondary text-xs sm:text-sm h-[38px] whitespace-nowrap"
               >
-                <UserPlus className="w-4 h-4 mr-1.5 text-swar-600" />
-                {creatingProfile ? "Creating…" : "Quick Sample Elder"}
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-swar-600 ${loadingProfiles ? "animate-spin" : ""}`} />
+                Sync API
               </button>
             </div>
           </div>
@@ -488,38 +470,42 @@ export default function Home() {
           {error && (
             <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-xs sm:text-sm text-red-700">
               <span>{error}</span>
-              <button onClick={() => setError("")} className="font-semibold underline">
+              <button type="button" onClick={() => setError("")} className="font-semibold underline shrink-0">
                 Dismiss
               </button>
             </div>
           )}
         </section>
 
-        {/* Empty State Onboarding Card */}
+        {/* Connection / Profile Selection Prompt */}
         {!selectedProfileId || !profile ? (
-          <section className="glass-card p-8 sm:p-12 text-center max-w-2xl mx-auto">
-            <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-swar-100 to-indigo-100 text-swar-700 flex items-center justify-center mx-auto mb-4 shadow-inner">
-              <Sparkles className="w-8 h-8" />
+          <section className="glass-card p-8 sm:p-10 text-center max-w-2xl mx-auto">
+            <div className="w-14 h-14 rounded-2xl bg-swar-50 text-swar-700 border border-swar-200 flex items-center justify-center mx-auto mb-4">
+              <Wifi className="w-7 h-7" />
             </div>
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
-              {loadingProfiles ? "Waking Up SwarExSethu Services…" : "Ready for Your First Elder Check-In"}
-            </h2>
-            <p className="text-sm sm:text-base text-slate-600 mt-2 max-w-lg mx-auto">
               {loadingProfiles
-                ? "Connecting to the cloud health engine. If Render was sleeping, this takes about 15–20 seconds."
-                : "Create a one-click sample elder profile with baseline conditions and Indian language support, or configure custom medicines in Settings."}
+                ? "Connecting to SwarExSethu API…"
+                : backendStatus === "offline"
+                  ? "Backend API Unreachable"
+                  : "Select an Elder Profile to Begin"}
+            </h2>
+            <p className="text-sm text-slate-600 mt-2 max-w-lg mx-auto">
+              {loadingProfiles
+                ? "Checking Render API availability and loading elder profiles."
+                : backendStatus === "offline"
+                  ? "Verify NEXT_PUBLIC_API_URL on Vercel points to your Render backend and CORS_ORIGINS on Render includes this exact Vercel domain."
+                  : "Choose an elder profile from the selector above or review configuration in Profiles & Meds."}
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-              <button
-                onClick={createDefaultProfile}
-                disabled={creatingProfile}
-                className="primary"
-              >
-                <UserPlus className="w-4 h-4 mr-2" />
-                {creatingProfile ? "Setting Up Profile…" : "Create Sample Elder (Amma)"}
+              <button type="button" onClick={loadProfiles} className="primary whitespace-nowrap">
+                <RefreshCw className="w-4 h-4 mr-2" /> Retry Connection
               </button>
-              <Link href="/settings" className="secondary">
-                Custom Setup in Settings <ArrowUpRight className="w-4 h-4 ml-1" />
+              <Link href="/settings" className="secondary whitespace-nowrap">
+                Open Profiles &amp; Meds <ArrowUpRight className="w-4 h-4 ml-1 shrink-0" />
+              </Link>
+              <Link href="/caregiver" className="secondary whitespace-nowrap">
+                Caregiver Bridge <ArrowUpRight className="w-4 h-4 ml-1 shrink-0" />
               </Link>
             </div>
           </section>
@@ -557,6 +543,7 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   {session && (
                     <button
+                      type="button"
                       onClick={() => {
                         setSession(null);
                         setTurns([]);
@@ -572,6 +559,7 @@ export default function Home() {
                     </button>
                   )}
                   <button
+                    type="button"
                     onClick={startSession}
                     disabled={!!session || escalation?.active || mode === "analyzing"}
                     className="primary"
@@ -594,8 +582,25 @@ export default function Home() {
                 />
               ) : (
                 <>
-                  {/* Input Mode Switcher & Voice Orb */}
+                  {/* Language Chips + Voice Input Switcher + Voice Orb */}
                   <div className="rounded-2xl bg-gradient-to-b from-slate-50/90 to-white border border-slate-200/70 p-6 flex flex-col items-center">
+                    <div className="flex flex-wrap items-center justify-center gap-1.5 mb-4">
+                      {LANG_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.code}
+                          type="button"
+                          onClick={() => setLanguage(opt.code)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
+                            language === opt.code
+                              ? "bg-swar-600 text-white border-swar-600 shadow-sm"
+                              : "bg-white text-slate-600 border-slate-200 hover:border-swar-400"
+                          }`}
+                        >
+                          {opt.label.split(" / ")[0]}
+                        </button>
+                      ))}
+                    </div>
+
                     <div className="inline-flex items-center p-1 rounded-xl bg-slate-200/70 mb-5">
                       <button
                         type="button"
@@ -663,8 +668,8 @@ export default function Home() {
                         onChange={(e) => setDraftUtterance(e.target.value)}
                         placeholder={
                           inputSource === "wispr_flow"
-                            ? "Click here & dictate with Wispr Flow (e.g. 'Subah ki BP goli kha li, thoda chakkar aa raha hai')…"
-                            : "Or type / paste elder response here…"
+                            ? "Dictate with Wispr Flow here or enter spoken check-in text…"
+                            : "Type or paste elder spoken response here…"
                         }
                         className="flex-1 bg-white"
                       />
@@ -706,6 +711,7 @@ export default function Home() {
                             SwarExSethu Companion
                           </span>
                           <button
+                            type="button"
                             onClick={() => speakText(assistantText, language)}
                             className="secondary text-xs py-1 px-2.5"
                             title="Repeat aloud"
@@ -748,12 +754,12 @@ export default function Home() {
 
             {/* Right Companion Rail */}
             <aside className="lg:col-span-4 space-y-6">
-              {/* Caregiver & Safety Card */}
+              {/* Service Health & Caregiver Safety Card */}
               <div className="glass-card p-5 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Activity className="w-5 h-5 text-swar-600" />
-                    <h3 className="text-base font-bold text-slate-900">Safety &amp; Caregiver Sync</h3>
+                    <h3 className="text-base font-bold text-slate-900">Safety &amp; System Status</h3>
                   </div>
                   <Link
                     href="/caregiver"
@@ -764,6 +770,24 @@ export default function Home() {
                 </div>
 
                 <div className="rounded-2xl bg-slate-50 p-3.5 border border-slate-200/70 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Backend API</span>
+                    <span
+                      className={`font-semibold ${
+                        backendStatus === "online"
+                          ? "text-emerald-700"
+                          : backendStatus === "offline"
+                            ? "text-red-600"
+                            : "text-amber-700"
+                      }`}
+                    >
+                      {backendStatus === "online"
+                        ? "Connected"
+                        : backendStatus === "offline"
+                          ? "Offline / CORS Blocked"
+                          : "Checking…"}
+                    </span>
+                  </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Session Turns</span>
                     <span className="font-semibold text-slate-800">{turns.length} logged</span>
@@ -777,15 +801,11 @@ export default function Home() {
                       <PhoneCall className="w-3 h-3" /> {profile.emergency_contact || "112"}
                     </a>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Triage Guard</span>
-                    <span className="font-semibold text-emerald-700">Active (Red-Flag Ready)</span>
-                  </div>
                 </div>
 
                 <div className="pt-1">
                   <p className="text-xs text-slate-500 mb-2">
-                    Quick demo phrases (click after starting session):
+                    Live session triggers:
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     <button
@@ -810,7 +830,15 @@ export default function Home() {
                       }
                       className="text-[11px] px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 disabled:opacity-50 inline-flex items-center gap-1"
                     >
-                      <ShieldAlert className="w-3 h-3" /> Test Red-Flag Triage
+                      <ShieldAlert className="w-3 h-3" /> Red-Flag Triage
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!assistantText}
+                      onClick={() => speakText(assistantText, language)}
+                      className="text-[11px] px-2.5 py-1.5 rounded-lg bg-swar-50 text-swar-800 border border-swar-200 hover:bg-swar-100 disabled:opacity-50 inline-flex items-center gap-1"
+                    >
+                      <Mic className="w-3 h-3" /> Speak Reply
                     </button>
                   </div>
                 </div>
