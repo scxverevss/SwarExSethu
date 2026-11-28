@@ -1,4 +1,4 @@
-﻿@tailwind base;
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -69,7 +69,7 @@
     @apply flex items-center gap-3 px-4 py-3 rounded-2xl border bg-white text-sm font-medium shadow-sm transition-all hover:shadow-md;
   }
   .med-pill.checked { @apply bg-green-50/90 border-green-300; }
-  .med-pill.unchecked { @apply bg-white border-slate-200 hover:border-swar-300; }
+  .med-pill.unchecked { @apply bg-white border-slate-200 hover:border-swar-400; }
 
   .urgent-card {
     @apply border-2 border-red-600 bg-red-50 rounded-2xl p-6 shadow-[0_0_40px_rgba(220,38,38,0.15)];
