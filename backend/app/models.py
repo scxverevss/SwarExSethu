@@ -15,7 +15,8 @@ from sqlalchemy import (
     Text,
     func,
 )
-from app.database import Base, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.database import Base
 
 
 class LanguageCode(str, enum.Enum):
