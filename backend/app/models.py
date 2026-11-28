@@ -15,11 +15,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
-
-class Base(DeclarativeBase):
-    pass
+from app.database import Base, Mapped, mapped_column, relationship
 
 
 class LanguageCode(str, enum.Enum):

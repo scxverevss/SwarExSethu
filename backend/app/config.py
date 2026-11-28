@@ -1,4 +1,4 @@
-from functools import lru_cache
+﻿from functools import lru_cache
 from typing import List, Optional
 
 from pydantic_settings import BaseSettings
@@ -7,8 +7,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application configuration. All AI keys optional for zero-key boot."""
 
-    DATABASE_URL: str = "sqlite+aiosqlite:////data/app.db"
-    DATA_DIR: str = "/data"
+    DATABASE_URL: str = "sqlite+aiosqlite:////tmp/app.db"
+    DATA_DIR: str = "/tmp"
 
     # Local ASR / TTS
     WHISPER_MODEL: str = "tiny"
