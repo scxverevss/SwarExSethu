@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Bar, Line } from "react-chartjs-2";
 import { AlertTriangle, CheckCircle2, Clock, RefreshCw, Send, Phone, Mail } from "lucide-react";
+import { Navbar } from "@/components/Navbar";
 import { api } from "@/lib/api";
 
 export default function Caregiver() {
@@ -63,10 +64,7 @@ export default function Caregiver() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-slate-200 bg-white px-6 py-4">
-        <h1 className="font-bold text-xl">Caregiver Dashboard</h1>
-        <p className="text-sm text-slate-500">Longitudinal view of elder health check-ins</p>
-      </header>
+      <Navbar />
 
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

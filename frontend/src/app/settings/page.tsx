@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { User, Pill, Phone, Mail, Plus, Save, Trash2 } from "lucide-react";
+import { Navbar } from "@/components/Navbar";
 import { api } from "@/lib/api";
 
 const LANG_OPTIONS: { value: string; label: string }[] = [
@@ -96,10 +97,7 @@ export default function Settings() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-slate-200 bg-white px-6 py-4">
-        <h1 className="font-bold text-xl">Settings — Profile & Medications</h1>
-        <p className="text-sm text-slate-500">Configure the elder, language, medicines & caregiver contacts.</p>
-      </header>
+      <Navbar />
 
       <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6">

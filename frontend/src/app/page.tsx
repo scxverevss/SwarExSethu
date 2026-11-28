@@ -1,11 +1,26 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic } from "lucide-react";
+import Link from "next/link";
+import {
+  Mic,
+  Volume2,
+  ShieldAlert,
+  Sparkles,
+  UserPlus,
+  Send,
+  Activity,
+  PhoneCall,
+  HeartHandshake,
+  Languages,
+  ArrowUpRight,
+} from "lucide-react";
+import { Navbar } from "@/components/Navbar";
 import { VoiceOrb } from "@/components/VoiceOrb";
 import { StatusPill } from "@/components/StatusPill";
 import { MedicationPills } from "@/components/MedicationPills";
 import { UrgentEscalationCard } from "@/components/UrgentEscalationCard";
+import { WindDown } from "@/components/WindDown";
 import { api } from "@/lib/api";
 
 type Mode = "idle" | "listening" | "speaking" | "analyzing";
@@ -27,29 +42,40 @@ const LANG_LABEL: Record<string, string> = {
   ta: "Tamil / Tanglish",
 };
 
+const DEFAULT_RAGAS = [
+  { key: "yaman", name: "Raga Yaman", bpm: 58 },
+  { key: "bhairavi", name: "Raga Bhairavi", bpm: 52 },
+  { key: "bihag", name: "Raga Bihag", bpm: 60 },
+];
+
 export default function Home() {
   const [profiles, setProfiles] = useState<any[]>([]);
+  const [loadingProfiles, setLoadingProfiles] = useState(true);
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [session, setSession] = useState<any>(null);
-  const [, setTurns] = useState<any[]>([]);
+  const [turns, setTurns] = useState<any[]>([]);
   const [mode, setMode] = useState<Mode>("idle");
   const [assistantText, setAssistantText] = useState("");
   const [elderTranscript, setElderTranscript] = useState("");
   const [finalTranscript, setFinalTranscript] = useState("");
+  const [draftUtterance, setDraftUtterance] = useState("");
   const [volume, setVolume] = useState(0);
   const [snr, setSnr] = useState(0);
-  const [inputSource, setInputSource] = useState<string>("mic_whisper");
+  const [inputSource, setInputSource] = useState<string>("wispr_flow");
   const [meds, setMeds] = useState<MedPill[]>([]);
   const [escalation, setEscalation] = useState<{
     active: boolean;
     instruction: string;
     emergencyContact: string;
   } | null>(null);
-  const [language, setLanguage] = useState("en");
+  const [language, setLanguage] = useState("hi");
   const [summary, setSummary] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  const [creatingProfile, setCreatingProfile] = useState(false);
   const [error, setError] = useState("");
+  const [ragas, setRagas] = useState<any[]>(DEFAULT_RAGAS);
+  const [windDownActive, setWindDownActive] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -58,37 +84,51 @@ export default function Home() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  // ---------- profile boot ----------
+  // ---------- profile & raga boot ----------
   const loadProfiles = useCallback(async () => {
+    setLoadingProfiles(true);
     try {
       const ps = await api.listProfiles();
       setProfiles(ps);
       if (ps.length && !selectedProfileId) {
         setSelectedProfileId(ps[0].id);
       }
+      setError("");
     } catch {
       setProfiles([]);
+    } finally {
+      setLoadingProfiles(false);
     }
   }, [selectedProfileId]);
 
   useEffect(() => {
     loadProfiles();
+    api
+      .listRagas()
+      .then((list) => {
+        if (Array.isArray(list) && list.length) setRagas(list);
+      })
+      .catch(() => {});
   }, [loadProfiles]);
 
   const createDefaultProfile = useCallback(async () => {
+    setCreatingProfile(true);
+    setError("");
     try {
       const p = await api.createProfile({
-        elder_name: "Elder",
-        age: 70,
+        elder_name: "Amma (Lakshmi)",
+        age: 72,
         preferred_language: "hi",
-        baseline_conditions: "Hypertension, Diabetes",
+        baseline_conditions: "Hypertension, Type 2 Diabetes",
         emergency_contact: "112",
         caregiver_webhook: "",
       });
       setProfiles((prev) => [p, ...prev]);
       setSelectedProfileId(p.id);
-    } catch {
-      setError("Could not create default profile");
+    } catch (e: any) {
+      setError(e.message || "Backend is waking up on Render—please try again in a few seconds.");
+    } finally {
+      setCreatingProfile(false);
     }
   }, []);
 
@@ -101,6 +141,8 @@ export default function Home() {
       setSession(null);
       setTurns([]);
       setAssistantText("");
+      setElderTranscript("");
+      setFinalTranscript("");
       setEscalation(null);
       setSummary("");
     },
@@ -133,6 +175,7 @@ export default function Home() {
   const speakText = useCallback(
     async (text: string, lang: string) => {
       if (!text) return;
+      if (windDownActive) setWindDownActive(false);
       setMode("speaking");
       try {
         const blob = await api.synthesizeSpeech(text, lang);
@@ -151,7 +194,7 @@ export default function Home() {
         browserSpeak(text, lang);
       }
     },
-    [browserSpeak]
+    [browserSpeak, windDownActive]
   );
 
   // ---------- session ----------
@@ -200,16 +243,22 @@ export default function Home() {
   // ---------- send message & transcript ----------
   const sendMessage = useCallback(
     async (text: string, confidence?: number, lang?: string) => {
+      const clean = text.trim();
+      if (!clean) return;
       if (!session?.id) {
+        setError("Start a Check-In session first so SwarExSethu can log and respond.");
         setMode("idle");
         return;
       }
+      setError("");
       setMode("analyzing");
+      setElderTranscript(clean);
+      setFinalTranscript((p) => (p ? `${p} ${clean}` : clean));
       try {
         const out = await api.sendMessage(session.id, {
-          text,
-          asr_confidence: confidence,
-          snr_db: snr,
+          text: clean,
+          asr_confidence: confidence ?? 0.96,
+          snr_db: snr || 28,
           language: lang || language,
           input_source: inputSource,
         });
@@ -243,8 +292,6 @@ export default function Home() {
         const asr = await api.transcribeAudio(blob);
         const transcript = (asr.transcript || "").trim();
         if (transcript) {
-          setFinalTranscript((p) => (p ? `${p} ${transcript}` : transcript));
-          setElderTranscript(transcript);
           await sendMessage(transcript, asr.confidence, asr.language || language);
         } else {
           setMode("idle");
@@ -266,6 +313,7 @@ export default function Home() {
   const startRecording = useCallback(async () => {
     setError("");
     setElderTranscript("");
+    if (windDownActive) setWindDownActive(false);
     setMode("listening");
     setIsRecording(true);
     try {
@@ -321,7 +369,7 @@ export default function Home() {
       setMode("idle");
       setIsRecording(false);
     }
-  }, [handleTranscribe]);
+  }, [handleTranscribe, windDownActive]);
 
   const handleMicToggle = useCallback(() => {
     if (isRecording) {
@@ -375,181 +423,406 @@ export default function Home() {
   }, [isRecording, language]);
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur sticky top-0 z-20">
-        <div className="flex items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-swar-600 flex items-center justify-center text-white font-bold text-lg">
-              S
-            </div>
-            <span className="font-bold text-xl tracking-tight">SwarExSethu</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <StatusPill
-              status={mode === "speaking" ? "speaking" : mode}
-              subtitle={finalTranscript ? `· ${finalTranscript}` : undefined}
-            />
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-slate-500">Voice Input:</span>
-              <span
-                className={`font-medium ${
-                  inputSource === "wispr_flow" ? "text-swar-600" : "text-slate-500"
-                }`}
-                id="wispr-mode-indicator"
-              >
-                {inputSource === "wispr_flow" ? "Wispr Flow" : "Built-in Mic"}
-              </span>
-            </div>
-            {error && (
-              <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">{error}</span>
-            )}
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen pb-16">
+      <Navbar
+        rightSlot={
+          <StatusPill
+            status={mode}
+            subtitle={
+              finalTranscript
+                ? finalTranscript.slice(0, 28) + (finalTranscript.length > 28 ? "…" : "")
+                : undefined
+            }
+          />
+        }
+      />
 
-      <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4 border rounded-2xl p-4 bg-white shadow-sm">
-          <label className="text-sm font-medium text-slate-600">Elder</label>
-          <select
-            value={selectedProfileId ?? ""}
-            onChange={(e) => selectProfile(Number(e.target.value))}
-            className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="">Select profile</option>
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.elder_name} ({p.age}) · {LANG_LABEL[p.preferred_language] || p.preferred_language}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={createDefaultProfile}
-            disabled={profiles.length > 0}
-            className="secondary text-xs"
-          >
-            Create default elder
-          </button>
-          {profiles.length === 0 && (
-            <p className="text-xs text-slate-500">No profiles yet. Create one to begin.</p>
-          )}
-        </div>
-
-        {!selectedProfileId || !profile ? null : (
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <div className="font-bold text-lg">{profile.elder_name}</div>
-                <div className="text-xs text-slate-500">
-                  {profile.age} yrs · {LANG_LABEL[profile.preferred_language] || profile.preferred_language}
-                </div>
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 space-y-6">
+        {/* Hero / Profile Selector Bar */}
+        <section className="glass-card p-5 sm:p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-swar-50 text-swar-700 border border-swar-200 text-xs font-semibold mb-2">
+                <HeartHandshake className="w-3.5 h-3.5" /> Voice-First Preventive Care for Indian Elders
               </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+                Daily Wellness &amp; Medication Check-In
+              </h1>
+              <p className="text-sm text-slate-600 mt-1">
+                Speak naturally in Hindi, Telugu, Kannada, Tamil, or English — with instant red-flag triage and caregiver sync.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 bg-slate-50/90 p-3 rounded-2xl border border-slate-200/80">
+              <div className="min-w-[200px]">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                  Active Elder Profile
+                </span>
+                <select
+                  value={selectedProfileId ?? ""}
+                  onChange={(e) => selectProfile(Number(e.target.value))}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium text-slate-800"
+                >
+                  <option value="">
+                    {loadingProfiles ? "Connecting to backend…" : "Select elder profile"}
+                  </option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.elder_name} ({p.age}y) · {LANG_LABEL[p.preferred_language] || p.preferred_language}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <button
-                onClick={startSession}
-                disabled={!!session || escalation?.active}
-                className="primary"
+                onClick={createDefaultProfile}
+                disabled={creatingProfile}
+                className="secondary text-xs sm:text-sm h-[38px] mt-auto"
               >
-                {session ? "Session Active" : "Start Check-In"}
+                <UserPlus className="w-4 h-4 mr-1.5 text-swar-600" />
+                {creatingProfile ? "Creating…" : "Quick Sample Elder"}
               </button>
             </div>
+          </div>
 
-            {escalation?.active && (
-              <UrgentEscalationCard
-                instruction={escalation.instruction}
-                emergencyContact={profile.emergency_contact || "112"}
-                onCallEmergency={() => {
-                  if (escalation.emergencyContact) {
-                    location.href = `tel:${escalation.emergencyContact}`;
-                  }
-                }}
-                onAcknowledge={acknowledgeEscalation}
-              />
-            )}
+          {error && (
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-xs sm:text-sm text-red-700">
+              <span>{error}</span>
+              <button onClick={() => setError("")} className="font-semibold underline">
+                Dismiss
+              </button>
+            </div>
+          )}
+        </section>
 
-            {!escalation?.active && (
-              <>
-                <div className="flex flex-col items-center gap-4 mb-6">
-                  <VoiceOrb
-                    mode={mode}
-                    amplitude={volume}
-                    label={mode === "idle" ? "Press mic to speak" : mode}
-                    onMicToggle={handleMicToggle}
-                    micOn={isRecording}
-                  />
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400">Mic</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={Math.round(volume * 100)}
-                      className="w-24 accent-swar-600"
-                      readOnly
-                    />
-                    <span className="text-xs text-slate-400">SNR {Math.round(snr)} dB</span>
+        {/* Empty State Onboarding Card */}
+        {!selectedProfileId || !profile ? (
+          <section className="glass-card p-8 sm:p-12 text-center max-w-2xl mx-auto">
+            <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-swar-100 to-indigo-100 text-swar-700 flex items-center justify-center mx-auto mb-4 shadow-inner">
+              <Sparkles className="w-8 h-8" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
+              {loadingProfiles ? "Waking Up SwarExSethu Services…" : "Ready for Your First Elder Check-In"}
+            </h2>
+            <p className="text-sm sm:text-base text-slate-600 mt-2 max-w-lg mx-auto">
+              {loadingProfiles
+                ? "Connecting to the cloud health engine. If Render was sleeping, this takes about 15–20 seconds."
+                : "Create a one-click sample elder profile with baseline conditions and Indian language support, or configure custom medicines in Settings."}
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={createDefaultProfile}
+                disabled={creatingProfile}
+                className="primary"
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                {creatingProfile ? "Setting Up Profile…" : "Create Sample Elder (Amma)"}
+              </button>
+              <Link href="/settings" className="secondary">
+                Custom Setup in Settings <ArrowUpRight className="w-4 h-4 ml-1" />
+              </Link>
+            </div>
+          </section>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Main Voice Check-In Stage */}
+            <section className="lg:col-span-8 glass-card p-6 sm:p-8 space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-slate-100">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-swar-500 to-indigo-600 text-white font-bold text-lg flex items-center justify-center shadow-md">
+                    {profile.elder_name?.[0]?.toUpperCase() || "E"}
                   </div>
-                  <div className="mt-2 flex items-center gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-bold text-slate-900">{profile.elder_name}</h2>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                        {profile.age} yrs
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-0.5">
+                      <span className="inline-flex items-center gap-1 text-swar-700 font-medium">
+                        <Languages className="w-3.5 h-3.5" />
+                        {LANG_LABEL[language] || language}
+                      </span>
+                      {profile.baseline_conditions && (
+                        <>
+                          <span>·</span>
+                          <span>{profile.baseline_conditions}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {session && (
                     <button
-                      onClick={() => setInputSource("wispr_flow")}
-                      className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                        inputSource === "wispr_flow"
-                          ? "bg-swar-100 border-swar-600 text-swar-800"
-                          : "border-slate-300 text-slate-600 hover:bg-slate-50"
-                      }`}
-                      aria-label="Switch to Wispr Flow dictation"
+                      onClick={() => {
+                        setSession(null);
+                        setTurns([]);
+                        setAssistantText("");
+                        setElderTranscript("");
+                        setFinalTranscript("");
+                        setSummary("");
+                        setEscalation(null);
+                      }}
+                      className="secondary text-xs"
                     >
-                      Wispr Flow
+                      New Session
+                    </button>
+                  )}
+                  <button
+                    onClick={startSession}
+                    disabled={!!session || escalation?.active || mode === "analyzing"}
+                    className="primary"
+                  >
+                    {session ? "Session Live" : "Start Check-In"}
+                  </button>
+                </div>
+              </div>
+
+              {escalation?.active ? (
+                <UrgentEscalationCard
+                  instruction={escalation.instruction}
+                  emergencyContact={profile.emergency_contact || "112"}
+                  onCallEmergency={() => {
+                    if (escalation.emergencyContact) {
+                      location.href = `tel:${escalation.emergencyContact}`;
+                    }
+                  }}
+                  onAcknowledge={acknowledgeEscalation}
+                />
+              ) : (
+                <>
+                  {/* Input Mode Switcher & Voice Orb */}
+                  <div className="rounded-2xl bg-gradient-to-b from-slate-50/90 to-white border border-slate-200/70 p-6 flex flex-col items-center">
+                    <div className="inline-flex items-center p-1 rounded-xl bg-slate-200/70 mb-5">
+                      <button
+                        type="button"
+                        onClick={() => setInputSource("wispr_flow")}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          inputSource === "wispr_flow"
+                            ? "bg-white text-swar-800 shadow-sm"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        Wispr Flow Dictation
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInputSource("mic_whisper")}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          inputSource === "mic_whisper"
+                            ? "bg-white text-swar-800 shadow-sm"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        Built-in Mic ASR
+                      </button>
+                    </div>
+
+                    <VoiceOrb
+                      mode={mode}
+                      amplitude={volume}
+                      label={
+                        mode === "idle"
+                          ? session
+                            ? "Tap mic to speak"
+                            : "Start check-in to begin"
+                          : mode
+                      }
+                      onMicToggle={handleMicToggle}
+                      micOn={isRecording}
+                    />
+
+                    {/* Audio Telemetry Strip */}
+                    <div className="mt-5 w-full max-w-xs flex items-center gap-3 text-xs text-slate-500">
+                      <span>Level</span>
+                      <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-swar-500 to-emerald-500 transition-all duration-75"
+                          style={{ width: `${Math.round(volume * 100)}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[11px]">SNR {Math.round(snr)} dB</span>
+                    </div>
+
+                    {/* Direct Wispr Flow / Utterance Input Box */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!draftUtterance.trim()) return;
+                        const text = draftUtterance;
+                        setDraftUtterance("");
+                        sendMessage(text, 0.98, language);
+                      }}
+                      className="mt-5 w-full flex flex-col sm:flex-row gap-2"
+                    >
+                      <input
+                        value={draftUtterance}
+                        onChange={(e) => setDraftUtterance(e.target.value)}
+                        placeholder={
+                          inputSource === "wispr_flow"
+                            ? "Click here & dictate with Wispr Flow (e.g. 'Subah ki BP goli kha li, thoda chakkar aa raha hai')…"
+                            : "Or type / paste elder response here…"
+                        }
+                        className="flex-1 bg-white"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!draftUtterance.trim() || mode === "analyzing"}
+                        className="primary text-xs sm:text-sm shrink-0"
+                      >
+                        <Send className="w-3.5 h-3.5 mr-1.5" /> Send Turn
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Conversation Dialogue Cards */}
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="rounded-2xl bg-slate-50 p-4 sm:p-5 border border-slate-200/70">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Elder Utterance
+                        </span>
+                        <span className="text-xs font-medium text-swar-700">
+                          {LANG_LABEL[language] || language}
+                        </span>
+                      </div>
+                      <div className="elder-text text-slate-900">
+                        {elderTranscript || finalTranscript || "Waiting for elder voice input…"}
+                      </div>
+                      {mode === "listening" && (
+                        <p className="mt-2 text-xs font-medium text-emerald-600">
+                          Listening… speak clearly now.
+                        </p>
+                      )}
+                    </div>
+
+                    {assistantText && (
+                      <div className="rounded-2xl bg-gradient-to-br from-swar-50 to-indigo-50/60 p-4 sm:p-5 border border-swar-200/80 shadow-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-swar-800">
+                            SwarExSethu Companion
+                          </span>
+                          <button
+                            onClick={() => speakText(assistantText, language)}
+                            className="secondary text-xs py-1 px-2.5"
+                            title="Repeat aloud"
+                          >
+                            <Volume2 className="w-3.5 h-3.5 mr-1 text-swar-600" /> Replay Voice
+                          </button>
+                        </div>
+                        <div className="elder-text text-slate-900">{assistantText}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Medications Due */}
+                  {meds.length > 0 && (
+                    <div className="pt-2">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Medicines Due Now (Voice or Tap)
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {meds.filter((m) => m.checked).length}/{meds.length} confirmed
+                        </span>
+                      </div>
+                      <MedicationPills meds={meds} onToggle={toggleMed} />
+                    </div>
+                  )}
+
+                  {/* Session Summary */}
+                  {summary && (
+                    <div className="rounded-2xl bg-blue-50/90 p-4 border border-blue-200/80">
+                      <div className="text-xs font-bold uppercase tracking-wider text-blue-800 mb-1">
+                        Clinical Check-In Summary
+                      </div>
+                      <div className="text-sm text-slate-800 leading-relaxed">{summary}</div>
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+
+            {/* Right Companion Rail */}
+            <aside className="lg:col-span-4 space-y-6">
+              {/* Caregiver & Safety Card */}
+              <div className="glass-card p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-swar-600" />
+                    <h3 className="text-base font-bold text-slate-900">Safety &amp; Caregiver Sync</h3>
+                  </div>
+                  <Link
+                    href="/caregiver"
+                    className="text-xs font-semibold text-swar-700 hover:underline inline-flex items-center"
+                  >
+                    Dashboard <ArrowUpRight className="w-3.5 h-3.5 ml-0.5" />
+                  </Link>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 p-3.5 border border-slate-200/70 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Session Turns</span>
+                    <span className="font-semibold text-slate-800">{turns.length} logged</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Emergency Line</span>
+                    <a
+                      href={`tel:${profile.emergency_contact || "112"}`}
+                      className="font-semibold text-red-600 inline-flex items-center gap-1 hover:underline"
+                    >
+                      <PhoneCall className="w-3 h-3" /> {profile.emergency_contact || "112"}
+                    </a>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Triage Guard</span>
+                    <span className="font-semibold text-emerald-700">Active (Red-Flag Ready)</span>
+                  </div>
+                </div>
+
+                <div className="pt-1">
+                  <p className="text-xs text-slate-500 mb-2">
+                    Quick demo phrases (click after starting session):
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      disabled={!session || mode === "analyzing"}
+                      onClick={() =>
+                        sendMessage("I took my morning BP tablet and slept well.", 0.98, "en")
+                      }
+                      className="text-[11px] px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50"
+                    >
+                      Routine Check-In
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!session || mode === "analyzing"}
+                      onClick={() =>
+                        sendMessage(
+                          "I am having severe chest pain and feeling very dizzy right now.",
+                          0.98,
+                          "en"
+                        )
+                      }
+                      className="text-[11px] px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 disabled:opacity-50 inline-flex items-center gap-1"
+                    >
+                      <ShieldAlert className="w-3 h-3" /> Test Red-Flag Triage
                     </button>
                   </div>
                 </div>
+              </div>
 
-                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 mb-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-xs font-semibold text-slate-500">Elder</span>
-                    <span className="text-xs text-swar-600">{LANG_LABEL[language] || language}</span>
-                  </div>
-                  <div className="elder-text text-slate-800">
-                    {elderTranscript || finalTranscript || "—"}
-                  </div>
-                  {mode === "listening" && (
-                    <p className="mt-2 text-xs text-green-600">Listening… speak now.</p>
-                  )}
-                </div>
-
-                {assistantText && (
-                  <div className="bg-swar-50 rounded-xl p-4 border border-swar-100 mb-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-xs font-semibold text-swar-700">SwarExSethu</span>
-                      <button
-                        onClick={() => speakText(assistantText, language)}
-                        className="secondary text-xs"
-                        title="Repeat"
-                      >
-                        <Mic className="w-3 h-3 mr-1" /> Repeat
-                      </button>
-                    </div>
-                    <div className="elder-text text-slate-800">{assistantText}</div>
-                  </div>
-                )}
-
-                {meds.length > 0 && (
-                  <div className="mb-4">
-                    <div className="text-xs font-semibold text-slate-600 mb-2">
-                      Medicines due now
-                    </div>
-                    <MedicationPills meds={meds} onToggle={toggleMed} />
-                  </div>
-                )}
-
-                {summary && (
-                  <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-                    <div className="text-xs font-semibold text-blue-700 mb-1">
-                      Check-in summary
-                    </div>
-                    <div className="text-sm text-slate-800">{summary}</div>
-                  </div>
-                )}
-              </>
-            )}
+              {/* Evening Wind-Down Raga Player */}
+              <WindDown
+                ragas={ragas}
+                active={windDownActive}
+                onToggle={() => setWindDownActive((v) => !v)}
+              />
+            </aside>
           </div>
         )}
       </main>
